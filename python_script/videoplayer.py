@@ -132,8 +132,8 @@ class RangeRequestHandler(http.server.SimpleHTTPRequestHandler):
 
         with open(path, 'rb') as f:
             f.seek(start)
-            # Increase chunk size to 64KB for faster local reading
-            chunk_size = 65536
+            # Increase chunk size to 128KB for smooth local reading
+            chunk_size = 131072
             while content_length > 0:
                 to_read = min(content_length, chunk_size)
                 data = f.read(to_read)
@@ -160,8 +160,6 @@ if 'port' not in st.session_state:
     thread.start()
 
 # --- UI ---
-st.markdown('<h1 class="title-text">🎥 Side-by-Side Video Reviewer</h1>', unsafe_allow_html=True)
-
 # Sidebar Configuration
 st.sidebar.markdown("### 📁 Video Source")
 col_path, col_browse = st.sidebar.columns([3, 1])
@@ -184,10 +182,15 @@ if os.path.exists(st.session_state.base_path):
     candidate_list = [d for d in os.listdir(st.session_state.base_path) if os.path.isdir(os.path.join(st.session_state.base_path, d))]
 
 st.sidebar.info(f"Currently viewing: \n`{st.session_state.base_path}`")
-st.sidebar.divider()
-selected_cand = st.sidebar.selectbox("Select Candidate", ["None"] + sorted(candidate_list), index=0)
 
-cand_id = st.text_input("Candidate ID", value=selected_cand if selected_cand != "None" else "", help="Type or select a candidate folder")
+# --- MAIN PAGE SELECTION ---
+selected_cand = st.selectbox(
+    "Candidate Folder", 
+    ["None"] + sorted(candidate_list), 
+    index=0
+)
+
+cand_id = selected_cand if selected_cand != "None" else None
 
 try:
     if cand_id:
@@ -204,31 +207,58 @@ try:
             
             # Synchronized Player HTML/JS
             html_code = f"""
+            <style>
+                .glass-panel {{
+                    background: rgba(30, 41, 59, 0.7) !important;
+                    backdrop-filter: blur(12px);
+                    -webkit-backdrop-filter: blur(12px);
+                    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+                    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+                }}
+                .video-container {{
+                    transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+                    opacity: 0.6;
+                    transform: scale(0.98);
+                    border: 2px solid #334155 !important;
+                }}
+                .video-container.is-playing {{
+                    opacity: 1;
+                    transform: scale(1);
+                    border-color: #3b82f6 !important;
+                    box-shadow: 0 0 30px rgba(59, 130, 246, 0.3);
+                }}
+                video {{
+                    border-radius: 8px 8px 0 0;
+                }}
+            </style>
+            
             <div id="wrapper" style="display: flex; flex-direction: column; align-items: center; gap: 20px; background: #0f172a; padding: 20px; border-radius: 15px; color: white;">
                 <div style="display: flex; gap: 15px; width: 100%; justify-content: center;">
                     <!-- Video 1 -->
-                    <div style="flex: 1; position: relative; border: 2px solid #334155; border-radius: 10px; overflow: hidden;">
+                    <div id="v1-container" class="video-container" style="flex: 1; position: relative; border-radius: 10px; overflow: hidden;">
                         <div style="position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.7); color: white; padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 12px; z-index: 10;">SCREEN RECORD</div>
-                        <video id="v1" width="100%" style="background: black;">
+                        <video id="v1" width="100%" preload="auto" playsinline style="background: black;">
                             <source src="{v1_url}" type="video/mp4">
                         </video>
                         <div style="padding: 10px; background: #1e293b; display: flex; align-items: center; gap: 15px;">
                             <button id="mute1" style="background: #e94560; border: none; color: white; padding: 5px 12px; border-radius: 5px; cursor: pointer; font-size: 12px;">Mute</button>
                             <input type="range" id="vol1" min="0" max="1" step="0.1" value="1" style="flex: 1; height: 5px; cursor: pointer;">
                             <span id="volLab1" style="font-size: 12px; font-family: monospace; min-width: 35px;">100%</span>
+                            <span id="time1" style="font-size: 10px; font-family: monospace; color: #94a3b8; margin-left: auto;">Dur: 00:00:00</span>
                         </div>
                     </div>
                     
                     <!-- Video 2 -->
-                    <div style="flex: 1; position: relative; border: 2px solid #334155; border-radius: 10px; overflow: hidden;">
+                    <div id="v2-container" class="video-container" style="flex: 1; position: relative; border-radius: 10px; overflow: hidden;">
                         <div style="position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.7); color: white; padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 12px; z-index: 10;">WEBCAM RECORD</div>
-                        <video id="v2" width="100%" style="background: black;">
+                        <video id="v2" width="100%" preload="auto" playsinline style="background: black;">
                             <source src="{v2_url}" type="video/mp4">
                         </video>
                         <div style="padding: 10px; background: #1e293b; display: flex; align-items: center; gap: 15px;">
                             <button id="mute2" style="background: #e94560; border: none; color: white; padding: 5px 12px; border-radius: 5px; cursor: pointer; font-size: 12px;">Mute</button>
                             <input type="range" id="vol2" min="0" max="1" step="0.1" value="1" style="flex: 1; height: 5px; cursor: pointer;">
                             <span id="volLab2" style="font-size: 12px; font-family: monospace; min-width: 35px;">100%</span>
+                            <span id="time2" style="font-size: 10px; font-family: monospace; color: #94a3b8; margin-left: auto;">Dur: 00:00:00</span>
                         </div>
                     </div>
                 </div>
@@ -238,7 +268,7 @@ try:
                     <div style="display: flex; align-items: center; gap: 20px;">
                         <button id="playBtn" style="background: #3b82f6; border: none; color: white; padding: 10px 25px; border-radius: 8px; font-weight: bold; cursor: pointer; min-width: 100px;">PLAY</button>
                         <input type="range" id="seekBar" value="0" step="0.1" style="flex: 1; cursor: pointer;">
-                        <span id="timeDisplay" style="color: white; font-family: monospace; font-size: 14px; min-width: 100px;">00:00 / 00:00</span>
+                        <span id="timeDisplay" style="color: white; font-family: monospace; font-size: 14px; min-width: 100px;">00:00:00 / 00:00:00</span>
                     </div>
                     
                     <div style="display: flex; gap: 10px; justify-content: center; align-items: center;">
@@ -258,9 +288,12 @@ try:
             <script>
                 const v1 = document.getElementById('v1');
                 const v2 = document.getElementById('v2');
+                const v1c = document.getElementById('v1-container');
+                const v2c = document.getElementById('v2-container');
                 const playBtn = document.getElementById('playBtn');
                 const seekBar = document.getElementById('seekBar');
-                const timeDisplay = document.getElementById('timeDisplay');
+                const time1 = document.getElementById('time1');
+                const time2 = document.getElementById('time2');
                 const mute1 = document.getElementById('mute1');
                 const mute2 = document.getElementById('mute2');
                 const vol1 = document.getElementById('vol1');
@@ -273,10 +306,21 @@ try:
 
                 let maxDuration = 0;
 
+                const formatTime = (seconds) => {{
+                    const h = Math.floor(seconds / 3600);
+                    const m = Math.floor((seconds % 3600) / 60);
+                    const s = Math.floor(seconds % 60);
+                    return [h, m, s]
+                        .map(v => v.toString().padStart(2, '0'))
+                        .join(':');
+                }};
+
                 const updateMetrics = () => {{
                     const d1 = v1.duration || 0;
                     const d2 = v2.duration || 0;
                     maxDuration = Math.max(d1, d2);
+                    time1.textContent = "Dur: " + formatTime(d1);
+                    time2.textContent = "Dur: " + formatTime(d2);
                 }};
 
                 v1.onloadedmetadata = updateMetrics;
@@ -288,16 +332,35 @@ try:
                         v2.play();
                         playBtn.textContent = 'PAUSE';
                         playBtn.style.background = '#ef4444';
+                        v1c.classList.add('is-playing');
+                        v2c.classList.add('is-playing');
                     }} else {{
                         v1.pause();
                         v2.pause();
                         playBtn.textContent = 'PLAY';
                         playBtn.style.background = '#3b82f6';
+                        v1c.classList.remove('is-playing');
+                        v2c.classList.remove('is-playing');
                     }}
                 }};
 
                 // Synchronize Play/Pause
                 playBtn.addEventListener('click', togglePlay);
+
+
+                // Debounced Seek Logic
+                let seekTimeout = null;
+                const debouncedSeek = (offset) => {{
+                    if (seekTimeout) clearTimeout(seekTimeout);
+                    
+                    const currentTime = Math.max(v1.currentTime, v2.currentTime);
+                    const target = Math.min(maxDuration, Math.max(0, currentTime + offset));
+                    
+                    seekTimeout = setTimeout(() => {{
+                        v1.currentTime = Math.min(target, v1.duration || target);
+                        v2.currentTime = Math.min(target, v2.duration || target);
+                    }}, 200);
+                }};
 
                 // Keyboard Listeners
                 document.addEventListener('keydown', (e) => {{
@@ -306,14 +369,10 @@ try:
                         togglePlay();
                     }} else if (e.code === 'ArrowRight') {{
                         e.preventDefault();
-                        const target = Math.min(maxDuration, Math.max(v1.currentTime, v2.currentTime) + 3);
-                        v1.currentTime = Math.min(target, v1.duration || target);
-                        v2.currentTime = Math.min(target, v2.duration || target);
+                        debouncedSeek(5);
                     }} else if (e.code === 'ArrowLeft') {{
                         e.preventDefault();
-                        const target = Math.max(0, Math.max(v1.currentTime, v2.currentTime) - 3);
-                        v1.currentTime = Math.min(target, v1.duration || target);
-                        v2.currentTime = Math.min(target, v2.duration || target);
+                        debouncedSeek(-5);
                     }}
                 }});
 
@@ -342,15 +401,6 @@ try:
                         const value = (100 / maxDuration) * currentTime;
                         seekBar.value = value;
                     }}
-                    
-                    const formatTime = (seconds) => {{
-                        const h = Math.floor(seconds / 3600);
-                        const m = Math.floor((seconds % 3600) / 60);
-                        const s = Math.floor(seconds % 60);
-                        return [h, m, s]
-                            .map(v => v.toString().padStart(2, '0'))
-                            .join(':');
-                    }};
                     
                     timeDisplay.textContent = `${{formatTime(currentTime)}} / ${{formatTime(maxDuration)}}`;
                     
