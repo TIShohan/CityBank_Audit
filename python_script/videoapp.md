@@ -1,42 +1,59 @@
-# 🎥 City Bank Video Reviewer: Developer Guide
+# 🎥 City Bank Video Reviewer: Developer & User Guide
 
-This document provides a deep technical overview of the **Side-by-Side Video Reviewer** application (`videoplayer.py`). It is designed to help new agents or developers understand the architecture, core logic, and synchronization mechanisms.
+This document provides a comprehensive technical and operational overview of the **One-Click Side-by-Side Video Reviewer** application.
+
+---
 
 ## 🏗 High-Level Architecture
 
 The application operates using a **Split-Server Architecture**:
 
-1.  **Frontend (Streamlit)**: Handles the User Interface, Candidate ID entry, and Folder Picking.
-2.  **Background Media Server (Python Threading)**: A dedicated HTTP server that streams video files from the local filesystem.
-3.  **Client-Side Sync Engine (HTML5/JS)**: Embedded Javascript that ensures both video elements remain perfectly in sync.
+1.  **Frontend (Streamlit)**: Handles the User Interface, Candidate auto-discovery, and layout management.
+2.  **Multithreaded Media Server**: A custom `ThreadingTCPServer` that serves video chunks in parallel, ensuring both video streams load simultaneously without blocking each other.
+3.  **Client-Side Sync Engine (vanilla JS)**: Embedded Javascript that ensures both video elements remain perfectly in sync with high-precision drift correction.
+
+---
+
+## 🚀 One-Click Quick Start (`start.bat`)
+
+The application is designed for instant deployment on any Windows PC.
+
+### What it does:
+- **Admin Elevation**: Automatically requests rights to manage system paths.
+- **Silent Python Setup**: Uses `winget` to install **Python 3.12** if missing.
+- **Dependency Management**: Installs `streamlit`, `pandas`, `requests`, and `tqdm`.
+- **PATH Refresh**: Dynamically reloads the system PATH into the current session so it works immediately after installation without a restart.
+- **Auto-Launch**: Starts the server and opens the browser automatically.
 
 ---
 
 ## 🛠 Core Technical Components
 
-### 1. Dynamic Path Management (`PathConfig`)
-Because the background HTTP server runs in a separate thread, we cannot use global variables or `os.chdir()` (which would break Streamlit’s file resolution). 
-- **Solution**: A `PathConfig` class instance is stored in `st.session_state`. 
-- **Mechanism**: The background server holds a reference to this object. When the user "Browses" for a new folder, we update `path_config.path`, and the running server immediately starts looking in the new location without needing a restart.
+### 1. High-Performance Streaming
+- **Segmented Delivery**: Uses a `RangeRequestHandler` to allow the browser to seek instantly anywhere in the timeline.
+- **128KB Chunk Optimization**: Adjusted chunk size to 128KB to balance low latency with high throughput for local SSDs.
+- **Threading Support**: Upgraded from `TCPServer` to `ThreadingTCPServer` to allow the browser to fetch data for both videos at the exact same time.
 
-### 2. The `RangeRequestHandler`
-Standard browsers require "Byte-Range" support to allow users to click anywhere on a video timeline (seeking).
-- **Function**: It intercepts `GET` requests, parses the `Range` header (e.g., `bytes=5000-`), and sends back a `206 Partial Content` response.
-- **Path Translation**: It uses `translate_path` to map the browser's request (e.g., `/794/video.mp4`) to the dynamic `base_path` selected by the user.
+### 2. Client-Side Sync & UI Logic
+- **Drift Correction**: Logic checks every few milliseconds. If videos drift apart by more than 0.3s, the secondary video is snapped to the master's timestamp.
+- **Debounced Seeking**: Arrow-key seeking (5s) is debounced to prevent browser request clogging, ensuring stability during rapid navigation.
+- **Active Highlight System**: 
+    - **Dimmed State**: Videos are dimmed (60% opacity) and shrunk (98% scale) when paused.
+    - **Active State**: The active video pair glows with a blue border and scales to 100% during playback to maximize focus.
+- **Glassmorphism**: Strategic use of frosted-glass backgrounds for individual video control bars.
 
-### 3. Synchronized Playback Engine (Javascript)
-Both videos are rendered inside a single `st.components.v1.html` block. The synchronization logic is entirely client-side for zero latency:
-- **Master-Slave Sync**: `v1` (Screen Record) acts as the master. `v2` (Webcam) listens for `timeupdate` events from `v1`.
-- **Drift Correction**: If `Math.abs(v1.currentTime - v2.currentTime) > 0.3` seconds, the code forces `v2` to jump to `v1`'s exact time.
-- **Universal Seek Bar**: An `<input type="range">` calculates the percentage of the master video’s duration and updates both `v1.currentTime` and `v2.currentTime` simultaneously.
+### 3. Navigation & Controls
+- **Spacebar**: Toggles Play/Pause globally.
+- **Left/Right Arrows**: Seek -5s / +5s (Debounced).
+- **Auto-Sync on Load**: Both videos are strictly initialized to `00:00:00` upon selecting a new candidate.
+- **Duration Display**: Individual `Dur: HH:MM:SS` indicators for quick video length comparison.
 
 ---
 
-## 📁 File Structure & Expectations
-
-The app looks for a specific naming convention within the selected **Source Path**:
+## 📁 Required File Structure
+The app automatically discovers folders following this standard:
 ```text
-Source Path/
+D:/City Bank_Downloads/
 └── {CandidateID}/
     ├── {CandidateID}_screenrecord.mp4
     └── {CandidateID}_webcam.mp4
@@ -44,27 +61,17 @@ Source Path/
 
 ---
 
-## 🚀 Deployment & Runtime Details
-
-### Running the App
-```bash
-streamlit run videoplayer.py --server.port 8502
-```
-
-### Port Management
-- The app uses `find_free_port()` to automatically find an available port for the video streaming server (to avoid conflicts with the Streamlit port).
-- The port remains persistent in the `st.session_state` during the browser session.
+## 🛠 Recent Updates & Progress
+- [x] **One-Click Installer**: Created `start.bat` for portable, zero-setup deployment.
+- [x] **Parallel Streaming**: Switched to Threading server for zero-lag dual playback.
+- [x] **Auto-Discovery**: Main page now features a dropdown of detected candidates.
+- [x] **UI Polish**: Implemented active highlight, removed heavy headers to maximize video area.
+- [x] **HH:MM:SS Formatting**: Global and individual durations unified to 24hr format.
+- [x] **Debounced Seek**: Fixed "Video Freezing" bug during rapid arrow-key usage.
 
 ---
 
-## 🛠 Progress Log & Knowledge Base
-
-- [x] **Absolute Path Fix**: Previously, `os.chdir` caused "File Not Found" errors for the `.py` script. This was resolved by using a custom `translate_path` in the `RangeRequestHandler`.
-- [x] **Folder Picker**: Integrated `tkinter.filedialog` to allow users to pick recording folders on any drive.
-- [x] **Playback Speed**: Implemented `playbackRate` synchronization for fast/slow-motion review.
-- [x] **Mute Toggle**: Added CSS/JS logic for individual mute buttons with UI state colors (Red=Active, Grey=Muted).
-
 ## ⏳ Future Roadmap
-- [ ] **Review Notes**: Add an input field to save time-stamped comments to a `.txt` or `.csv` file in the candidate folder.
-- [ ] **Frame Stepper**: Add buttons to move forward/backward by exactly 1 frame (0.04s).
-- [ ] **Auto-Discovery**: Automatically list all Candidate IDs found in the selected folder in a dropdown.
+- [ ] **Evidence Snapshot**: Button to save a side-by-side `.png` of the current frame for reports.
+- [ ] **Review Notes**: Native input box to save text logs directly into the candidate folder.
+- [ ] **Frame Stepper**: Support for frame-by-frame forward/backward movement.
