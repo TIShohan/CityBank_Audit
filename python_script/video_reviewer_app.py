@@ -5,6 +5,7 @@ import socketserver
 import http.server
 import socket
 import base64
+from tkinter import filedialog, Tk
 
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="City Bank Video Reviewer", page_icon="🎥", layout="wide")
@@ -49,7 +50,26 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- CONFIG & SERVER ---
-BASE_PATH = r"D:\City Bank_Downloads"
+if 'base_path' not in st.session_state:
+    st.session_state.base_path = r"D:\City Bank_Downloads"
+
+class PathConfig:
+    def __init__(self, path):
+        self.path = path
+
+if 'path_config' not in st.session_state:
+    st.session_state.path_config = PathConfig(st.session_state.base_path)
+
+def select_folder():
+    try:
+        root = Tk()
+        root.withdraw()
+        root.attributes('-topmost', True)
+        path = filedialog.askdirectory(master=root)
+        root.destroy()
+        return path
+    except:
+        return None
 
 def find_free_port():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -59,14 +79,14 @@ def find_free_port():
 class RangeRequestHandler(http.server.SimpleHTTPRequestHandler):
     """Adds support for Range requests (required for video seeking)."""
     def __init__(self, *args, **kwargs):
-        self.base_dir = kwargs.pop('base_dir', BASE_PATH)
+        self.path_config = kwargs.pop('path_config')
         super().__init__(*args, **kwargs)
 
     def translate_path(self, path):
-        # Ensure we serve files from BASE_PATH regardless of current working directory
+        # Ensure we serve files from the current dynamic base_path
         path = super().translate_path(path)
         rel_path = os.path.relpath(path, os.getcwd())
-        return os.path.join(self.base_dir, rel_path)
+        return os.path.join(self.path_config.path, rel_path)
 
     def end_headers(self):
         self.send_header('Access-Control-Allow-Origin', '*')
@@ -114,9 +134,9 @@ class RangeRequestHandler(http.server.SimpleHTTPRequestHandler):
             f.seek(start)
             self.wfile.write(f.read(content_length))
 
-def start_server(port, base_path):
+def start_server(port, path_config):
     def handler_factory(*args, **kwargs):
-        return RangeRequestHandler(*args, base_dir=base_path, **kwargs)
+        return RangeRequestHandler(*args, path_config=path_config, **kwargs)
     
     with socketserver.TCPServer(("", port), handler_factory) as httpd:
         httpd.serve_forever()
@@ -124,21 +144,39 @@ def start_server(port, base_path):
 if 'port' not in st.session_state:
     port = find_free_port()
     st.session_state.port = port
-    thread = threading.Thread(target=start_server, args=(port, BASE_PATH), daemon=True)
+    thread = threading.Thread(target=start_server, args=(port, st.session_state.path_config), daemon=True)
     thread.start()
 
 # --- UI ---
 st.markdown('<h1 class="title-text">🎥 Side-by-Side Video Reviewer</h1>', unsafe_allow_html=True)
 
-cand_id = st.text_input("Enter Candidate ID (e.g., 794)", help="The folder name in D:\City Bank_Downloads")
+# Sidebar Configuration
+st.sidebar.markdown("### 📁 Video Source")
+col_path, col_browse = st.sidebar.columns([3, 1])
+with col_path:
+    new_path = st.sidebar.text_input("Source Path", st.session_state.base_path, label_visibility="collapsed")
+    if new_path != st.session_state.base_path:
+        st.session_state.base_path = new_path
+        st.session_state.path_config.path = new_path
+with col_browse:
+    if st.sidebar.button("📁"):
+        selected = select_folder()
+        if selected:
+            st.session_state.base_path = selected
+            st.session_state.path_config.path = selected
+            st.rerun()
+
+st.sidebar.info(f"Currently viewing: \n`{st.session_state.base_path}`")
+
+cand_id = st.text_input("Enter Candidate ID (e.g., 794)", help="The folder name in your selected path")
 
 if cand_id:
     # URL construction
     v1_rel_path = f"{cand_id}/{cand_id}_screenrecord.mp4"
     v2_rel_path = f"{cand_id}/{cand_id}_webcam.mp4"
     
-    v1_full_path = os.path.join(BASE_PATH, v1_rel_path)
-    v2_full_path = os.path.join(BASE_PATH, v2_rel_path)
+    v1_full_path = os.path.join(st.session_state.base_path, v1_rel_path)
+    v2_full_path = os.path.join(st.session_state.base_path, v2_rel_path)
     
     if os.path.exists(v1_full_path) and os.path.exists(v2_full_path):
         v1_url = f"http://localhost:{st.session_state.port}/{v1_rel_path}"
@@ -292,5 +330,5 @@ else:
 
 st.sidebar.divider()
 st.sidebar.markdown("### Status")
-st.sidebar.write(f"Serving files from: `{BASE_PATH}`")
+st.sidebar.write(f"Streaming from: `{st.session_state.base_path}`")
 st.sidebar.write(f"Streaming Port: `{st.session_state.port}`")
