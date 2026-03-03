@@ -166,9 +166,16 @@ with col_browse:
             st.session_state.path_config.path = selected
             st.rerun()
 
-st.sidebar.info(f"Currently viewing: \n`{st.session_state.base_path}`")
+# --- DISCOVER CANDIDATES ---
+candidate_list = []
+if os.path.exists(st.session_state.base_path):
+    candidate_list = [d for d in os.listdir(st.session_state.base_path) if os.path.isdir(os.path.join(st.session_state.base_path, d))]
 
-cand_id = st.text_input("Enter Candidate ID (e.g., 794)", help="The folder name in your selected path")
+st.sidebar.info(f"Currently viewing: \n`{st.session_state.base_path}`")
+st.sidebar.divider()
+selected_cand = st.sidebar.selectbox("Select Candidate", ["None"] + sorted(candidate_list), index=0)
+
+cand_id = st.text_input("Candidate ID", value=selected_cand if selected_cand != "None" else "", help="Type or select a candidate folder")
 
 if cand_id:
     # URL construction
@@ -184,25 +191,31 @@ if cand_id:
         
         # Synchronized Player HTML/JS
         html_code = f"""
-        <div id="wrapper" style="display: flex; flex-direction: column; align-items: center; gap: 20px; background: #0f172a; padding: 20px; border-radius: 15px;">
+        <div id="wrapper" style="display: flex; flex-direction: column; align-items: center; gap: 20px; background: #0f172a; padding: 20px; border-radius: 15px; color: white;">
             <div style="display: flex; gap: 15px; width: 100%; justify-content: center;">
+                <!-- Video 1 -->
                 <div style="flex: 1; position: relative; border: 2px solid #334155; border-radius: 10px; overflow: hidden;">
                     <div style="position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.7); color: white; padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 12px; z-index: 10;">SCREEN RECORD</div>
                     <video id="v1" width="100%" style="background: black;">
                         <source src="{v1_url}" type="video/mp4">
                     </video>
-                    <div style="padding: 10px; background: #1e293b; display: flex; justify-content: space-between; align-items: center;">
-                        <button id="mute1" style="background: #e94560; border: none; color: white; padding: 5px 15px; border-radius: 5px; cursor: pointer;">Mute Screen</button>
+                    <div style="padding: 10px; background: #1e293b; display: flex; align-items: center; gap: 15px;">
+                        <button id="mute1" style="background: #e94560; border: none; color: white; padding: 5px 12px; border-radius: 5px; cursor: pointer; font-size: 12px;">Mute</button>
+                        <input type="range" id="vol1" min="0" max="1" step="0.1" value="1" style="flex: 1; height: 5px; cursor: pointer;">
+                        <span id="volLab1" style="font-size: 12px; font-family: monospace; min-width: 35px;">100%</span>
                     </div>
                 </div>
                 
+                <!-- Video 2 -->
                 <div style="flex: 1; position: relative; border: 2px solid #334155; border-radius: 10px; overflow: hidden;">
                     <div style="position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.7); color: white; padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 12px; z-index: 10;">WEBCAM RECORD</div>
                     <video id="v2" width="100%" style="background: black;">
                         <source src="{v2_url}" type="video/mp4">
                     </video>
-                    <div style="padding: 10px; background: #1e293b; display: flex; justify-content: space-between; align-items: center;">
-                        <button id="mute2" style="background: #e94560; border: none; color: white; padding: 5px 15px; border-radius: 5px; cursor: pointer;">Mute Webcam</button>
+                    <div style="padding: 10px; background: #1e293b; display: flex; align-items: center; gap: 15px;">
+                        <button id="mute2" style="background: #e94560; border: none; color: white; padding: 5px 12px; border-radius: 5px; cursor: pointer; font-size: 12px;">Mute</button>
+                        <input type="range" id="vol2" min="0" max="1" step="0.1" value="1" style="flex: 1; height: 5px; cursor: pointer;">
+                        <span id="volLab2" style="font-size: 12px; font-family: monospace; min-width: 35px;">100%</span>
                     </div>
                 </div>
             </div>
@@ -215,9 +228,10 @@ if cand_id:
                     <span id="timeDisplay" style="color: white; font-family: monospace; font-size: 14px; min-width: 100px;">00:00 / 00:00</span>
                 </div>
                 
-                <div style="display: flex; gap: 10px; justify-content: center;">
+                <div style="display: flex; gap: 10px; justify-content: center; align-items: center;">
                     <button id="back5" style="background: #475569; border: none; color: white; padding: 5px 12px; border-radius: 5px; cursor: pointer;">-5s</button>
                     <button id="fwd5" style="background: #475569; border: none; color: white; padding: 5px 12px; border-radius: 5px; cursor: pointer;">+5s</button>
+                    <span style="font-size: 12px; color: #94a3b8; margin-left:15px;">Speed:</span>
                     <select id="playbackRate" style="background: #475569; color: white; border: none; padding: 5px 10px; border-radius: 5px;">
                         <option value="0.5">0.5x</option>
                         <option value="1" selected>1.0x</option>
@@ -236,13 +250,27 @@ if cand_id:
             const timeDisplay = document.getElementById('timeDisplay');
             const mute1 = document.getElementById('mute1');
             const mute2 = document.getElementById('mute2');
+            const vol1 = document.getElementById('vol1');
+            const vol2 = document.getElementById('vol2');
+            const volLab1 = document.getElementById('volLab1');
+            const volLab2 = document.getElementById('volLab2');
             const back5 = document.getElementById('back5');
             const fwd5 = document.getElementById('fwd5');
             const rate = document.getElementById('playbackRate');
 
-            // Synchronize Play/Pause
-            playBtn.addEventListener('click', () => {{
-                if (v1.paused) {{
+            let maxDuration = 0;
+
+            const updateMetrics = () => {{
+                const d1 = v1.duration || 0;
+                const d2 = v2.duration || 0;
+                maxDuration = Math.max(d1, d2);
+            }};
+
+            v1.onloadedmetadata = updateMetrics;
+            v2.onloadedmetadata = updateMetrics;
+
+            const togglePlay = () => {{
+                if (v1.paused && v2.paused) {{
                     v1.play();
                     v2.play();
                     playBtn.textContent = 'PAUSE';
@@ -253,57 +281,97 @@ if cand_id:
                     playBtn.textContent = 'PLAY';
                     playBtn.style.background = '#3b82f6';
                 }}
+            }};
+
+            // Synchronize Play/Pause
+            playBtn.addEventListener('click', togglePlay);
+
+            // Keyboard Listeners
+            document.addEventListener('keydown', (e) => {{
+                if (e.code === 'Space') {{
+                    e.preventDefault();
+                    togglePlay();
+                }} else if (e.code === 'ArrowRight') {{
+                    e.preventDefault();
+                    const target = Math.min(maxDuration, Math.max(v1.currentTime, v2.currentTime) + 3);
+                    v1.currentTime = Math.min(target, v1.duration || target);
+                    v2.currentTime = Math.min(target, v2.duration || target);
+                }} else if (e.code === 'ArrowLeft') {{
+                    e.preventDefault();
+                    const target = Math.max(0, Math.max(v1.currentTime, v2.currentTime) - 3);
+                    v1.currentTime = Math.min(target, v1.duration || target);
+                    v2.currentTime = Math.min(target, v2.duration || target);
+                }}
             }});
 
             // Synchronize Seeking
             seekBar.addEventListener('input', () => {{
-                const time = v1.duration * (seekBar.value / 100);
-                v1.currentTime = time;
-                v2.currentTime = time;
+                const targetTime = maxDuration * (seekBar.value / 100);
+                v1.currentTime = Math.min(targetTime, v1.duration || targetTime);
+                v2.currentTime = Math.min(targetTime, v2.duration || targetTime);
+            }});
+
+            // Volume Controls
+            vol1.addEventListener('input', () => {{
+                v1.volume = vol1.value;
+                volLab1.textContent = Math.round(vol1.value * 100) + '%';
+            }});
+            vol2.addEventListener('input', () => {{
+                v2.volume = vol2.value;
+                volLab2.textContent = Math.round(vol2.value * 100) + '%';
             }});
 
             // Update Seek Bar & Time Display
-            v1.addEventListener('timeupdate', () => {{
-                const value = (100 / v1.duration) * v1.currentTime;
-                seekBar.value = value;
+            const syncUI = () => {{
+                const currentTime = Math.max(v1.currentTime, v2.currentTime);
                 
-                // Format time
-                const curMins = Math.floor(v1.currentTime / 60);
-                const curSecs = Math.floor(v1.currentTime % 60);
-                const durMins = Math.floor(v1.duration / 60);
-                const durSecs = Math.floor(v1.duration % 60);
+                if (maxDuration > 0) {{
+                    const value = (100 / maxDuration) * currentTime;
+                    seekBar.value = value;
+                }}
+                
+                const curMins = Math.floor(currentTime / 60);
+                const curSecs = Math.floor(currentTime % 60);
+                const durMins = Math.floor(maxDuration / 60);
+                const durSecs = Math.floor(maxDuration % 60);
                 
                 timeDisplay.textContent = 
                     `${{curMins.toString().padStart(2, '0')}}:${{curSecs.toString().padStart(2, '0')}} / ` +
                     `${{durMins.toString().padStart(2, '0')}}:${{durSecs.toString().padStart(2, '0')}}`;
                 
-                // Sync check (prevent drift)
-                if (Math.abs(v1.currentTime - v2.currentTime) > 0.3) {{
-                    v2.currentTime = v1.currentTime;
+                if (!v1.paused && !v2.paused && !v1.ended && !v2.ended) {{
+                    if (Math.abs(v1.currentTime - v2.currentTime) > 0.3) {{
+                        v2.currentTime = v1.currentTime;
+                    }}
                 }}
-            }});
+            }};
+
+            v1.addEventListener('timeupdate', syncUI);
+            v2.addEventListener('timeupdate', syncUI);
 
             // Individual Mute
             mute1.addEventListener('click', () => {{
                 v1.muted = !v1.muted;
-                mute1.textContent = v1.muted ? 'Unmute Screen' : 'Mute Screen';
+                mute1.textContent = v1.muted ? 'Unmute' : 'Mute';
                 mute1.style.background = v1.muted ? '#475569' : '#e94560';
             }});
 
             mute2.addEventListener('click', () => {{
                 v2.muted = !v2.muted;
-                mute2.textContent = v2.muted ? 'Unmute Webcam' : 'Mute Webcam';
+                mute2.textContent = v2.muted ? 'Unmute' : 'Mute';
                 mute2.style.background = v2.muted ? '#475569' : '#e94560';
             }});
 
             // Back/Forward
             back5.addEventListener('click', () => {{
-                v1.currentTime -= 5;
-                v2.currentTime = v1.currentTime;
+                const target = Math.max(0, Math.max(v1.currentTime, v2.currentTime) - 5);
+                v1.currentTime = Math.min(target, v1.duration || target);
+                v2.currentTime = Math.min(target, v2.duration || target);
             }});
             fwd5.addEventListener('click', () => {{
-                v1.currentTime += 5;
-                v2.currentTime = v1.currentTime;
+                const target = Math.max(v1.currentTime, v2.currentTime) + 5;
+                v1.currentTime = Math.min(target, v1.duration || target);
+                v2.currentTime = Math.min(target, v2.duration || target);
             }});
 
             // Rate Change
@@ -311,11 +379,6 @@ if cand_id:
                 v1.playbackRate = parseFloat(rate.value);
                 v2.playbackRate = parseFloat(rate.value);
             }});
-
-            // Ensure durations are loaded for seeker
-            v1.onloadedmetadata = () => {{
-                seekBar.max = 100;
-            }};
         </script>
         """
         st.components.v1.html(html_code, height=800)

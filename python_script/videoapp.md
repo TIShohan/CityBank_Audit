@@ -1,35 +1,70 @@
-# 🎥 Side-by-Side Video Reviewer App
+# 🎥 City Bank Video Reviewer: Developer Guide
 
-This application is designed specifically for reviewing candidate recordings for **City Bank Recruitment**. It allows a reviewer to watch two synchronized videos (Screen Record and Webcam) simultaneously with a single universal controller.
+This document provides a deep technical overview of the **Side-by-Side Video Reviewer** application (`videoplayer.py`). It is designed to help new agents or developers understand the architecture, core logic, and synchronization mechanisms.
 
-## 📁 Project Structure
-- **Script Location**: `D:\City Bank_Recruitment\python_script\video_reviewer_app.py`
-- **Data Source**: `D:\City Bank_Downloads` (Contains folders named by Candidate ID)
-- **Framework**: Streamlit + Custom HTTP Streaming Server
+## 🏗 High-Level Architecture
 
-## 🚀 Key Features
-- **Synchronized Playback**: A single Play/Pause button and Seek Bar control both videos at once.
-- **Universal Seek Bar**: Scrubbing through one timeline automatically updates both videos.
-- **Individual Mute Controls**: Each video has a dedicated mute button to isolate audio.
-- **Auto-Sync Logic**: Built-in Javascript logic prevents video drift; the webcam video is snapped to the screen record's timestamp if they get out of sync by >0.3s.
-- **Playback Speeds**: Options for 0.5x, 1.0x, 1.5x, and 2.0x playback.
-- **Range-Request Support**: Uses a custom `RangeRequestHandler` to allow seeking/jumping in high-resolution `.mp4` files.
+The application operates using a **Split-Server Architecture**:
 
-## 🛠 Progress & Status
-- [x] **Initial Setup**: Created basic Streamlit UI for Candidate ID entry.
-- [x] **Video Streaming**: Implemented a background threading server to serve local files from `D:\City Bank_Downloads` via HTTP.
-- [x] **Sync Logic**: Added JS-based synchronization for play, pause, and seek events.
-- [x] **Bug Fix (Path Resolution)**: Resolved an `os.chdir` conflict where Streamlit couldn't find the script file. Now uses absolute path translation in the HTTP server.
-- [x] **UI Polish**: Applied a premium dark-mode theme with glassmorphism effects.
+1.  **Frontend (Streamlit)**: Handles the User Interface, Candidate ID entry, and Folder Picking.
+2.  **Background Media Server (Python Threading)**: A dedicated HTTP server that streams video files from the local filesystem.
+3.  **Client-Side Sync Engine (HTML5/JS)**: Embedded Javascript that ensures both video elements remain perfectly in sync.
 
-## 📝 Usage for Future Agents
-- **To Run**: `streamlit run video_reviewer_app.py --server.port 8502`
-- **Port Conflict**: The video server finds a random free port to stream files; this port is displayed in the sidebar status.
-- **File Matching**: The app expects files inside `D:\City Bank_Downloads\{candidate_id}\` named exactly as:
-  - `{candidate_id}_screenrecord.mp4`
-  - `{candidate_id}_webcam.mp4`
+---
 
-## ⏳ To-Do / Future Enhancements
-- [ ] Add a "Save Review Notes" feature.
-- [ ] Implement a folder browser for easier Candidate ID selection.
-- [ ] Add frame-by-frame navigation for detailed analysis.
+## 🛠 Core Technical Components
+
+### 1. Dynamic Path Management (`PathConfig`)
+Because the background HTTP server runs in a separate thread, we cannot use global variables or `os.chdir()` (which would break Streamlit’s file resolution). 
+- **Solution**: A `PathConfig` class instance is stored in `st.session_state`. 
+- **Mechanism**: The background server holds a reference to this object. When the user "Browses" for a new folder, we update `path_config.path`, and the running server immediately starts looking in the new location without needing a restart.
+
+### 2. The `RangeRequestHandler`
+Standard browsers require "Byte-Range" support to allow users to click anywhere on a video timeline (seeking).
+- **Function**: It intercepts `GET` requests, parses the `Range` header (e.g., `bytes=5000-`), and sends back a `206 Partial Content` response.
+- **Path Translation**: It uses `translate_path` to map the browser's request (e.g., `/794/video.mp4`) to the dynamic `base_path` selected by the user.
+
+### 3. Synchronized Playback Engine (Javascript)
+Both videos are rendered inside a single `st.components.v1.html` block. The synchronization logic is entirely client-side for zero latency:
+- **Master-Slave Sync**: `v1` (Screen Record) acts as the master. `v2` (Webcam) listens for `timeupdate` events from `v1`.
+- **Drift Correction**: If `Math.abs(v1.currentTime - v2.currentTime) > 0.3` seconds, the code forces `v2` to jump to `v1`'s exact time.
+- **Universal Seek Bar**: An `<input type="range">` calculates the percentage of the master video’s duration and updates both `v1.currentTime` and `v2.currentTime` simultaneously.
+
+---
+
+## 📁 File Structure & Expectations
+
+The app looks for a specific naming convention within the selected **Source Path**:
+```text
+Source Path/
+└── {CandidateID}/
+    ├── {CandidateID}_screenrecord.mp4
+    └── {CandidateID}_webcam.mp4
+```
+
+---
+
+## 🚀 Deployment & Runtime Details
+
+### Running the App
+```bash
+streamlit run videoplayer.py --server.port 8502
+```
+
+### Port Management
+- The app uses `find_free_port()` to automatically find an available port for the video streaming server (to avoid conflicts with the Streamlit port).
+- The port remains persistent in the `st.session_state` during the browser session.
+
+---
+
+## 🛠 Progress Log & Knowledge Base
+
+- [x] **Absolute Path Fix**: Previously, `os.chdir` caused "File Not Found" errors for the `.py` script. This was resolved by using a custom `translate_path` in the `RangeRequestHandler`.
+- [x] **Folder Picker**: Integrated `tkinter.filedialog` to allow users to pick recording folders on any drive.
+- [x] **Playback Speed**: Implemented `playbackRate` synchronization for fast/slow-motion review.
+- [x] **Mute Toggle**: Added CSS/JS logic for individual mute buttons with UI state colors (Red=Active, Grey=Muted).
+
+## ⏳ Future Roadmap
+- [ ] **Review Notes**: Add an input field to save time-stamped comments to a `.txt` or `.csv` file in the candidate folder.
+- [ ] **Frame Stepper**: Add buttons to move forward/backward by exactly 1 frame (0.04s).
+- [ ] **Auto-Discovery**: Automatically list all Candidate IDs found in the selected folder in a dropdown.
