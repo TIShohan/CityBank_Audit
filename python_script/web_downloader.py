@@ -5,6 +5,8 @@ import subprocess
 import time
 import threading
 import pandas as pd
+from concurrent.futures import ThreadPoolExecutor
+from streamlit.runtime.scriptrunner import add_script_run_ctx, get_script_run_ctx
 from tkinter import filedialog, Tk
 
 # Page Configuration
@@ -54,11 +56,17 @@ def download_file(url, folder, filename, mode, preset, status_text, progress_bar
     target_ext = ".mp4" if mode in ["Rename", "Convert"] else ".webm"
     final_path = os.path.join(folder, f"{filename}{target_ext}")
     
-    if os.path.exists(final_path): return True, "Already Exists"
+    if os.path.exists(final_path): 
+        if progress_bar: progress_bar.progress(1.0, text=f"{filename}: Already Downloaded")
+        return True, "Already Exists"
 
     try:
         temp_ext = ".webm"
         download_path = final_path if mode == "Rename" else os.path.join(folder, f"{filename}{temp_ext}")
+        
+        # Cleanup partial/corrupted temp files from previous interrupted runs
+        if os.path.exists(download_path):
+            os.remove(download_path)
         
         response = requests.get(url, stream=True, timeout=30)
         response.raise_for_status()
@@ -87,7 +95,18 @@ def download_file(url, folder, filename, mode, preset, status_text, progress_bar
 if 'history' not in st.session_state:
     st.session_state.history = []
 if 'download_path' not in st.session_state:
-    st.session_state.download_path = r"D:\City Bank_Downloads"
+    st.session_state.download_path = ""
+
+def select_folder():
+    try:
+        root = Tk()
+        root.withdraw()
+        root.attributes('-topmost', True)
+        path = filedialog.askdirectory(master=root)
+        root.destroy()
+        return path
+    except:
+        return None
 
 st.title("🎥 Candidate Video Manager")
 
@@ -96,9 +115,9 @@ with st.container(border=True):
     st.write("**Download Destination Folder**")
     col_path, col_browse = st.columns([5, 1])
     with col_path:
-        target_dir = st.text_input("Destination Path", st.session_state.download_path, label_visibility="collapsed")
+        target_dir = st.text_input("Destination Path", st.session_state.download_path, placeholder="Please select a folder...", label_visibility="collapsed")
     with col_browse:
-        if st.button("📁 Browse", use_container_width=True):
+        if st.button("📁 Browse", width="stretch"):
             selected_path = select_folder()
             if selected_path:
                 st.session_state.download_path = selected_path
@@ -117,6 +136,11 @@ with st.sidebar:
             index=0,
             help="Ultrafast = ⚡ Speed | Faster = 📁 Smallest size"
         )
+    
+    st.divider()
+    st.header("⚡ Performance")
+    num_workers = st.number_input("Parallel Workers", min_value=1, max_value=10, value=4, help="Number of files to process at once.")
+    st.caption("💡 *Set 4 workers for safe performance*")
 
 tab1, tab2 = st.tabs(["👤 Single Candidate", "📂 Bulk Upload (CSV/Excel)"])
 
@@ -127,7 +151,9 @@ with tab1:
         webcam_url = st.text_input("Webcam Record URL", placeholder="https://...")
         
         if st.button("🚀 Start Single Process", type="primary"):
-            if not c_id:
+            if not target_dir:
+                st.error("Please select a download destination folder first!")
+            elif not c_id:
                 st.error("Missing Candidate ID")
             else:
                 candidate_dir = os.path.join(target_dir, c_id)
@@ -175,39 +201,105 @@ with tab2:
                     st.session_state.selected_df = temp_df
                     st.session_state.last_uploaded = uploaded_file.name
 
-                edited_df = st.data_editor(st.session_state.selected_df, hide_index=True, use_container_width=True)
+                # Selection Header & Buttons
+                col_head, col_mark1, col_mark2 = st.columns([5, 1.5, 1.5])
+                with col_head:
+                    st.subheader("📋 Candidate List")
+                with col_mark1:
+                    if st.button("Mark All", width="stretch", help="Select all candidates"):
+                        st.session_state.selected_df["Process"] = True
+                        st.rerun()
+                with col_mark2:
+                    if st.button("Unmark All", width="stretch", help="Deselect all candidates"):
+                        st.session_state.selected_df["Process"] = False
+                        st.rerun()
+
+                edited_df = st.data_editor(st.session_state.selected_df, hide_index=True, width="stretch")
+                st.session_state.selected_df = edited_df
                 
                 if st.button("🚀 Process Selected Candidates", type="primary"):
-                    to_process = edited_df[edited_df["Process"] == True]
+                    if not target_dir:
+                        st.error("Please select a download destination folder first!")
+                    else:
+                        to_process = edited_df[edited_df["Process"] == True]
                     if to_process.empty:
                         st.warning("No candidates selected.")
                     else:
-                        progress_text = st.empty()
-                        overall_bar = st.progress(0)
+                        progress_container = st.container()
+                        overall_bar = st.progress(0, text="Overall Progress")
                         
-                        for i, (idx, row) in enumerate(to_process.iterrows()):
-                            cid = str(row[id_col])
-                            surrounding_msg = f"({i+1}/{len(to_process)}) Processing ID: {cid}"
-                            progress_text.markdown(f"### {surrounding_msg}")
-                            
-                            c_dir = os.path.join(target_dir, cid)
-                            os.makedirs(c_dir, exist_ok=True)
-                            
-                            s_url = row[screen_col] if screen_col and pd.notna(row[screen_col]) else None
-                            w_url = row[webcam_col] if webcam_col and pd.notna(row[webcam_col]) else None
-                            
-                            # Progress bars for the current candidate
-                            col_p1, col_p2 = st.columns(2)
-                            with col_p1: bar1 = st.progress(0, text="Screen")
-                            with col_p2: bar2 = st.progress(0, text="Webcam")
-                            
-                            download_file(s_url, c_dir, f"{cid}_screenrecord", mode.split(' ')[0], preset, None, bar1)
-                            download_file(w_url, c_dir, f"{cid}_webcam", mode.split(' ')[0], preset, None, bar2)
-                            
-                            overall_bar.progress((i + 1) / len(to_process))
-                        
+                        # Capture current context for all threads
+                        ctx = get_script_run_ctx()
+
+                        def single_file_task(url, folder, filename, mode_val, preset_val, bar_obj, context):
+                            add_script_run_ctx(threading.current_thread(), context)
+                            if url:
+                                download_file(url, folder, filename, mode_val.split(' ')[0], preset_val, None, bar_obj)
+
+                        # We use a shared pool for all tasks
+                        with ThreadPoolExecutor(max_workers=num_workers) as executor:
+                            futures = []
+                            for idx, row in to_process.iterrows():
+                                cid = str(row[id_col])
+                                c_dir = os.path.join(target_dir, cid)
+                                os.makedirs(c_dir, exist_ok=True)
+                                
+                                s_url = row[screen_col] if screen_col and pd.notna(row[screen_col]) else None
+                                w_url = row[webcam_col] if webcam_col and pd.notna(row[webcam_col]) else None
+
+                                # Create active UI slot for this candidate
+                                with progress_container:
+                                    slot = st.empty()
+                                    with slot.container():
+                                        st.write(f"⚙️ Processing: **{cid}**")
+                                        col_p1, col_p2 = st.columns(2)
+                                        with col_p1: b1 = st.progress(0, f"ID:{cid} Screen")
+                                        with col_p2: b2 = st.progress(0, f"ID:{cid} Webcam")
+                                
+                                # File tasks (greedy: starts as soon as a worker is free)
+                                if s_url:
+                                    futures.append(executor.submit(single_file_task, s_url, c_dir, f"{cid}_screenrecord", mode, preset, b1, ctx))
+                                if w_url:
+                                    futures.append(executor.submit(single_file_task, w_url, c_dir, f"{cid}_webcam", mode, preset, b2, ctx))
+
+                            # Track overall progress based on files
+                            total_files = len(futures)
+                            for i, future in enumerate(futures):
+                                try:
+                                    future.result()
+                                except Exception as e:
+                                    st.error(f"Worker Error: {e}")
+                                overall_bar.progress((i + 1) / total_files, text=f"Overall Progress ({i+1}/{total_files} files)")
+
                         st.balloons()
                         st.success("Bulk processing complete!")
+
+                        st.balloons()
+                        st.success("Bulk processing complete!")
+                        
+                        # Generate Summary Report
+                        st.divider()
+                        st.subheader("📊 Bulk Process Summary")
+                        
+                        # Re-check existence to confirm status
+                        summary_data = []
+                        for _, row in to_process.iterrows():
+                            cid = str(row[id_col])
+                            c_dir = os.path.join(target_dir, cid)
+                            
+                            has_s = any(f.startswith(f"{cid}_screenrecord") for f in (os.listdir(c_dir) if os.path.exists(c_dir) else []))
+                            has_w = any(f.startswith(f"{cid}_webcam") for f in (os.listdir(c_dir) if os.path.exists(c_dir) else []))
+                            
+                            status = "✅ Success" if (has_s and has_w) else "⚠️ Partial" if (has_s or has_w) else "❌ Failed"
+                            summary_data.append({"Candidate ID": cid, "Status": status})
+                        
+                        sum_df = pd.DataFrame(summary_data)
+                        col_s1, col_s2, col_s3 = st.columns(3)
+                        col_s1.metric("Total", len(sum_df))
+                        col_s2.metric("Success", len(sum_df[sum_df["Status"] == "✅ Success"]))
+                        col_s3.metric("Failed/Partial", len(sum_df[sum_df["Status"] != "✅ Success"]))
+                        
+                        st.dataframe(sum_df, use_container_width=True, hide_index=True)
         except Exception as e:
             st.error(f"Error reading file: {e}")
 

@@ -1,30 +1,39 @@
 # Candidate Video Manager (Web Application)
 
 ## 🎥 Application Overview
-The **Candidate Video Manager** is a visual, browser-based interface designed for fast, manual processing of candidate recording links. It provides an intuitive GUI to manage, download, and transcode video files without editing CSV records.
+The **Candidate Video Manager** is a visual, browser-based interface designed for fast, manual or bulk processing of candidate recording links. It provides an intuitive GUI to manage, download, and transcode video files without editing CSV records.
 
 ## 🚀 Key Features
-- **User-Friendly Interface (Streamlit):** A clean, browser-based dashboard hosted locally.
-- **Manual Input:** Dedicated sections for pasting Candidate IDs and direct URLs (`screen_record_url`, `webcam_record_url`).
-- **Parallel Processing:** Handles Screen and Webcam recordings simultaneously in background threads, effectively doubling the processing speed per candidate.
+- **User-Friendly Interface (Streamlit):** A clean, browser-based dashboard with two modes: **Single Candidate** and **Bulk Upload**.
+- **Bulk Processing (CSV/Excel):** Upload spreadsheets to process dozens of candidates at once.
+- **Smart Column Detection:** Automatically identifies "candidate_id", "screen_record_url", and "webcam_record_url".
+- **Interactive Row Selection:** Select specific candidates to process; includes "Mark All" and "Unmark All" controls.
+- **Multi-threaded Processing:** Configurable **Concurrent Workers** (1-10) to process multiple candidates simultaneously, maximizing your PC's CPU and bandwidth.
+- **Interruption Safety:** Automatically cleans up partial/corrupted files if a download is interrupted, ensuring clean retries.
+- **Bulk Summary Report:** Provides a categorized result (Success/Partial/Failed) with metrics after every bulk operation.
 - **Interactive Folder Selection:** Integrated Windows Folder Picker ("Browse" button) for setting custom download destinations.
 - **Smart Transcoding Control:** 
   - Choice of **Original**, **Rename**, or **Convert** (True MP4) output.
-  - Interactive **Conversion Preset Slider** to control speed vs. file size.
-- **Live Progress UI:** Real-time side-by-side progress bars for each file, showing percentages and real-time conversion speeds.
+  - Interactive **Conversion Preset Slider** in the sidebar.
+- **Live Progress UI:** Real-time individual progress bars for screen and webcam files, along with an **Overall Progress** tracker for bulk jobs.
 
 ## 🛠 Technical Stack
 - **Dashboard:** Streamlit (Python Web Framework).
 - **Processing:** FFmpeg (via Subprocess) for H.264 transcoding.
-- **Concurrency:** `ThreadPoolExecutor` with automated `ScriptRunContext` management for thread-safe UI updates.
+- **Concurrency:** `ThreadPoolExecutor` (3 workers) with `ScriptRunContext` for thread-safe UI updates.
+- **Data Handling:** `pandas` for CSV/Excel parsing and interactive data editing.
 - **System Integration:** `tkinter` for native OS folder browsing.
 
 ## 📖 How to Use
-1. **Set Folder:** Choose where you want the files saved using the **Browse** button.
-2. **Identity:** Enter the **Candidate ID**.
-3. **Links:** Paste the screen and webcam links into their respective fields.
-4. **Options:** Select "Convert (.mp4)" and adjust the conversion speed in the "Advanced Settings" if needed.
-5. **Start:** Click `🚀 Start Process`. Watch both progress bars move simultaneously!
+### Option A: Single Candidate
+1. **Identity:** Enter the **Candidate ID**.
+2. **Links:** Paste the screen and webcam links.
+3. **Start:** Click `🚀 Start Single Process`.
+
+### Option B: Bulk Upload
+1. **Upload:** Drag and drop your CSV or Excel file.
+2. **Select:** Use the checkboxes or the **Mark All** button to choose which candidates to process.
+3. **Process:** Click `🚀 Process Selected Candidates`. Watch 3 candidates process at once!
 
 ## 📂 System File
-Located at: `d:\City Bank_Recruitment\python_script\web_downloader.py`
+Located at: `d:\CityBank_Audit\python_script\web_downloader.py`
