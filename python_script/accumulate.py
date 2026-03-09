@@ -10,13 +10,30 @@ def accumulate_excel_sheets():
 
     print("--- Simple Excel Accumulator ---")
     
+    # Helper to convert "A" -> 0, "B" -> 1, etc.
+    def col_to_idx(s):
+        idx = 0
+        for char in s.upper():
+            idx = idx * 26 + (ord(char) - ord('A') + 1)
+        return idx - 1
+
     # 1. Paths
-    input_file = r"D:\CityBank_Audit\Fraud Monitoring & Review (1).xlsx"
+    input_file = r"D:\CityBank_Audit\Fraud Monitoring & Review (2).xlsx"
     output_dir = r"D:\CityBank_Audit"
 
     if not os.path.exists(input_file):
         print(f"File not found: {input_file}")
         return
+
+    # Get User Input
+    print("Example: D,A,C")
+    user_cols_str = input("Enter column letters to accumulate (e.g., D,A,C): ").upper().replace(" ", "")
+    if not user_cols_str:
+        print("No columns entered.")
+        return
+    
+    selected_letters = user_cols_str.split(",")
+    col_indices = [col_to_idx(l) for l in selected_letters]
 
     try:
         print(f"Reading file: {os.path.basename(input_file)}")
@@ -27,21 +44,27 @@ def accumulate_excel_sheets():
 
         for sheet in sheet_names:
             print(f"Processing sheet: {sheet}...")
-            # Read Column A and B exactly (indices 0 and 1)
-            # We skip the header because you asked to skip the first row
-            df = pd.read_excel(xls, sheet_name=sheet, usecols=[0, 1], skiprows=1, header=None)
+            # Read all columns first to allow reordering
+            df = pd.read_excel(xls, sheet_name=sheet, skiprows=1, header=None)
             
             if df.empty:
                 continue
                 
-            # Name the columns
-            df.columns = ['Candidate ID', 'Is Cheater']
+            # Filter and Rearrange columns
+            try:
+                df = df.iloc[:, col_indices]
+            except IndexError:
+                print(f"Warning: Sheet '{sheet}' is missing columns. Skipping.")
+                continue
+
+            # Name columns based on letters
+            df.columns = [f"Col {l}" for l in selected_letters]
             
             # Add Source Sheet name
             df.insert(0, 'Source Sheet', sheet)
             
-            # Remove rows where BOTH columns are empty
-            df = df.dropna(how='all', subset=['Candidate ID', 'Is Cheater'])
+            # Remove rows where all selected data columns are empty
+            df = df.dropna(how='all', subset=df.columns[1:])
             
             all_data.append(df)
 
@@ -50,7 +73,7 @@ def accumulate_excel_sheets():
             master_df = pd.concat(all_data, ignore_index=True)
 
             # Final Save
-            output_file = os.path.join(output_dir, "Fraud Monitoring & Review (1)_Master_Accumulated.xlsx")
+            output_file = os.path.join(output_dir, "Master_Accumulated.xlsx")
             print(f"Saving to: {output_file}")
             master_df.to_excel(output_file, index=False)
             
